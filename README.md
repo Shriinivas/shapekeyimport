@@ -23,9 +23,6 @@ target path and setting its value to the comma separated IDs of the shapekey pat
 <a href=https://youtu.be/XMimQfQR_ss> This video</a> provides a more detailed overview of the add-on and the various options available
 
 # Limitations
-The import functionality does not support the SVG transforms (a work-around maybe to convert the shapes <br>
-to paths first before transformation) and some other features available in the standard svg import add-on<br>
-
 Exercise caution when using this add-on in production as it's in alpha stage<br>
 
 # Credits
