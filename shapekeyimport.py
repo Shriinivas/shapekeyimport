@@ -16,10 +16,7 @@ from mathutils import Vector
 from math import sqrt, cos, sin, acos, degrees, radians
 from cmath import exp, sqrt as csqrt, phase
 from collections import MutableSequence
-from warnings import warn
-from operator import itemgetter
 import re
-import traceback
 
 bl_info = {
     "name": "Import Paths and Shapekeys from SVG",
@@ -70,6 +67,7 @@ class ObjectImportShapekeys(bpy.types.Operator):
             # ~ mod = __import__(demoModule, globals(), locals(), ['object'], 0)
             # ~ mod.postproc(createdObjsMap)
         # ~ except Exception as e:
+            # ~ import traceback
             # ~ print(traceback.format_exc())
             # ~ pass
         return {'FINISHED'}
