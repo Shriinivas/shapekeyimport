@@ -12,7 +12,7 @@ Click 'Save User Settings'<br>
 You can invoke the add-on by pressing spacebar in the 3d view and selecting the <br>
 'Import Paths & Shapekeys' option<br>
 
-The demo.svg and demo.blend illustrate the functionality. You can import the demo.svg in a new blender file to see the shapekeys of the main object. Uncheck the Relative option to apply all shape keys one by one in turn.
+The demo.svg and demo.blend illustrate the functionality. You can import the demo.svg in a new blender file to see the shapekeys of the main object in action. Uncheck the Relative option to apply all shape keys one by one in turn.
 
 
 # Quick start
