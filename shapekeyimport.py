@@ -428,9 +428,6 @@ def getSliceCntPerSeg(pathElem, toAddCnt):
     sortedPath = sorted(pathWrapper.list, key=lambda x: x.length, reverse = True)
     cnts = [0]*len(path)
     addedCnt = 0
-    maxLen = 0
-    maxLenSegIdx = -1
-    total = 0
     pathLen = sum([item.length for item in sortedPath])
     
     for i in range(0, len(path)):
@@ -449,12 +446,14 @@ def getSliceCntPerSeg(pathElem, toAddCnt):
         cnts[sortedPath[i].idx] = segCnt
 
         addedCnt += segCnt
-
-        if(segLen > maxLen):
-            maxLenSegIdx = i
-            maxLen = segLen
-    
-    cnts[sortedPath[0].idx] += (toAddCnt - addedCnt)
+        
+    #Take care of some extreme cases
+    while(toAddCnt > addedCnt):
+        for i in range(0, len(sortedPath)):
+            cnts[sortedPath[i].idx] += 1
+            addedCnt += 1
+            if(toAddCnt == addedCnt):
+                break
 
     return cnts
     
