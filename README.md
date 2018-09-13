@@ -2,6 +2,8 @@
 This add-on lets you import paths from an SVG file as paths as well as shape keys
 Supported Blender version: 2.79b
 
+<b>Please report issues or feedback in the comments of the youtube video<b>
+
 # Installation
 Download the svgimport.py file and in Blender select File->User Preferences <br>
 Click install Add-ons tab and then Install Add-on from File<br>
@@ -35,4 +37,4 @@ and some portion imported from <a href=https://github.com/mathandy/svgpathtools>
 # License
 <a href=https://github.com/Shriinivas/shapekeyimport/blob/master/LICENSE>MIT</a>
 
-# Please report issues or feedback in the comments of the youtube video
+
