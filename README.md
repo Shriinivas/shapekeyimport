@@ -34,3 +34,5 @@ and some portion imported from <a href=https://github.com/mathandy/svgpathtools>
 
 # License
 <a href=https://github.com/Shriinivas/shapekeyimport/blob/master/LICENSE>MIT</a>
+
+# Please report issues or feedback in the comments of the youtube video
