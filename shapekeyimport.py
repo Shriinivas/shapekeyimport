@@ -1,75 +1,127 @@
 #
 #
-# This Blender add-on imports paths and shapekeys from an  SVG file
+# This Blender add-on imports paths and shapeKeys from an  SVG file
 # Supported Blender Version: 2.79b
 #
-# License: MIT (https://github.com/Shriinivas/shapekeyimport/blob/master/LICENSE)
+# License: MIT (https://github.com/Shriinivas/shapeKeyimport/blob/master/LICENSE)
 #
 
-#Not yet pep8 compliant
+# Not yet pep8 compliant 
 
-import bpy, copy, math
-from bpy.props import FloatProperty, BoolProperty, StringProperty, CollectionProperty, EnumProperty
+# Scaling not done based on the unit of the SVG document, but based simply on value
+# If precise scaling is needed, appropriate unit (mm) needs to be set in the source SVG
+
+import bpy, copy, math, re, time
+from bpy.props import IntProperty, FloatProperty, BoolProperty, StringProperty
+from bpy.props import CollectionProperty, EnumProperty
 from xml.dom import minidom
 from collections import OrderedDict
 from mathutils import Vector
 from math import sqrt, cos, sin, acos, degrees, radians
 from cmath import exp, sqrt as csqrt, phase
 from collections import MutableSequence
-import re
+
+#################### UI and Registration Stuff ####################
 
 bl_info = {
-    "name": "Import Paths and Shapekeys from SVG",
+    "name": "Import Paths and Shape Keys from SVG",
     "category": "Import-Export",
 }
 
 noneStr = "-None-"
 
 def getCurveNames(scene, context):
-    return [(noneStr, noneStr, '-1')] + [(obj.name, obj.name, str(i)) for i, obj in enumerate(context.scene.objects) if obj.type == 'CURVE']
+    return [(noneStr, noneStr, '-1')] + [(obj.name, obj.name, str(i)) for i, obj in 
+            enumerate(context.scene.objects) if obj.type == 'CURVE']
 
 def getAlignmentList(scene, context):
-    alignListStrs = [*getAlignOrderFns().keys()]
-    return [(noneStr, noneStr, '-1')] + [(str(align), str(align), str(i)) for i, align in enumerate(alignListStrs)]
+    alignListStrs = [*getAlignSegsFn().keys()]
+    return [(noneStr, noneStr, '-1')] + [(str(align), str(align), str(i))  
+            for i, align in enumerate(alignListStrs)]
 
-class ObjectImportShapekeys(bpy.types.Operator):
+def getMatchPartList(scene, context):
+    arrangeListStrs = [*getAlignPartsFn().keys()]
+    return [(noneStr, noneStr, '-1')] + [(str(arrange), str(arrange), str(i)) 
+        for i, arrange in enumerate(arrangeListStrs)]
+
+class ObjectImportShapeKeys(bpy.types.Operator):
+    
     bl_idname = "object.import_shapekeys" 
-    bl_label = "Import Paths & Shapekeys"
+    bl_label = "Import Paths & Shape Keys"
     bl_options = {'REGISTER', 'UNDO'}
 
     filter_glob = StringProperty(default="*.svg")    
     filepath = StringProperty(subtype='FILE_PATH')
 
     #User input 
-    shapekeyAttribName = StringProperty(name="Attribute")
-    byGroup = BoolProperty(name="Import By Group")
-    byAttrib = BoolProperty(name="Import By Attribute")
-    addShapekeyPaths = BoolProperty(name="Retain Shape Key Paths")
-    addNontargetPaths = BoolProperty(name="Import Non-target Paths")
-    xScale = FloatProperty(name="X")
-    yScale = FloatProperty(name="Y")
-    zLocation = FloatProperty(name="Z Location")
-    objList = EnumProperty(name='Copy Properties From', items=getCurveNames)
-    alignList = EnumProperty(name='Node Alignment Order', items=getAlignmentList)
-    addPathsFromHiddenLayer = BoolProperty(name="Import Hidden Layer Paths")
-    originToGeometry = BoolProperty(name="Origin To Geometry")
+    
+    byGroup = BoolProperty(name="Import By Group", \
+        description = "Import target and shape key paths forming a group in SVG", \
+            default = True)
+        
+    byAttrib = BoolProperty(name="Import By Attribute", \
+        description = "Import targets having attribute defining shape key path IDs in SVG", \
+            default = True)
+        
+    shapeKeyAttribName = StringProperty(name="Attribute", \
+        description = "Name of target path attribute used to define shape keys in SVG", 
+            default = 'shapekeys')
+        
+    addShapeKeyPaths = BoolProperty(name="Retain Shape Key Paths", \
+        description = "Import shape key paths as paths as well as shape keys", \
+            default = False)
+        
+    addNontargetPaths = BoolProperty(name="Import Non-target Paths", \
+        description = "Import paths that are neither targets nor shape keys", \
+            default = True)
+        
+    addPathsFromHiddenLayer = BoolProperty(name="Import Hidden Layer Paths", 
+        description='Import paths from layers marked as hidden in SVG', \
+            default = False)
+        
+    originToGeometry = BoolProperty(name="Origin To Geometry", \
+        description="Shift the imported path's origin to its geometry center", \
+            default = False)
+    
+    xScale = FloatProperty(name="X", \
+        description="X scale factor for imported paths", \
+        default = 0.01)
+        
+    yScale = FloatProperty(name="Y", \
+        description="Y scale factor for imported paths", \
+            default = 0.01)
+
+    zLocation = FloatProperty(name="Z Location", \
+        description='Z coordiate value for imported paths', default = 0)
+        
+    resolution = IntProperty(name="Resolution", \
+        description='Higher value gives smoother transition but more complex geometry', \
+            default = 50, min=0)
+        
+    objList = EnumProperty(name="Copy Properties From", items = getCurveNames, \
+        description='Curve whose material, depth etc. should be copied on to imported paths')
+        
+    partMatchList = EnumProperty(name="Match Parts By", items = getMatchPartList, \
+        description='Match disconnected parts of target and shape key based on (BBox -> Bounding Box)')
+        
+    alignList = EnumProperty(name="Node Alignment Order", items = getAlignmentList, \
+        description = 'Start aligning the nodes of target and shape keys (paths or parts) from')
     
     def execute(self, context):
-        createdObjsMap = main(infilePath = self.filepath, shapekeyAttribName = self.shapekeyAttribName, byGroup = self.byGroup, 
-                              byAttrib = self.byAttrib, addShapekeyPaths = self.addShapekeyPaths, addNontargetPaths = self.addNontargetPaths, 
-                              scale = [self.xScale, -self.yScale, 1], zVal = self.zLocation, copyObjName = self.objList, 
-                              alignOrder = self.alignList, pathsFromHiddenLayer = self.addPathsFromHiddenLayer, 
+        createdObjsMap = main(infilePath = self.filepath, \
+                              shapeKeyAttribName = self.shapeKeyAttribName, \
+                              byGroup = self.byGroup, \
+                              byAttrib = self.byAttrib, \
+                              addShapeKeyPaths = self.addShapeKeyPaths, \
+                              addNontargetPaths = self.addNontargetPaths, \
+                              scale = [self.xScale, -self.yScale, 1], \
+                              zVal = self.zLocation, \
+                              resolution = self.resolution, \
+                              copyObjName = self.objList, \
+                              partArrangeOrder = self.partMatchList, \
+                              alignOrder = self.alignList, \
+                              pathsFromHiddenLayer = self.addPathsFromHiddenLayer, \
                               originToGeometry = self.originToGeometry)
-        #Create demo video
-        # ~ try:
-            # ~ demoModule = [obj.data.body for obj in bpy.data.objects if obj.type == 'FONT'][0]
-            # ~ print(demoModule)
-            # ~ mod = __import__(demoModule, globals(), locals(), ['object'], 0)
-            # ~ mod.postproc(createdObjsMap)
-        # ~ except Exception as e:
-            # ~ import traceback
-            # ~ print(traceback.format_exc())
-            # ~ pass
         return {'FINISHED'}
         
     def draw(self, context):
@@ -80,9 +132,9 @@ class ObjectImportShapekeys(bpy.types.Operator):
         row = col.row()
         row.prop(self, "byAttrib")
         row = col.row()
-        row.prop(self, "shapekeyAttribName")
+        row.prop(self, "shapeKeyAttribName")
         row = col.row()
-        row.prop(self, "addShapekeyPaths")
+        row.prop(self, "addShapeKeyPaths")
         row = col.row()
         row.prop(self, "addNontargetPaths")
         row = col.row()
@@ -98,43 +150,47 @@ class ObjectImportShapekeys(bpy.types.Operator):
         row = col.row()
         row.prop(self, "zLocation")
         layout.row().separator()
+        row = col.row()        
+        row.prop(self, "resolution")
         row = col.row()
         row.prop(self, "objList")
+        row = col.row()
+        row.prop(self, "partMatchList")
         row = col.row()
         row.prop(self, "alignList")
 
     def invoke(self, context, event):
-        alignListStrs = [*getAlignOrderFns().keys()]
-        #default values
-        self.shapekeyAttribName = 'shapekeys'
-        self.byGroup = True
-        self.byAttrib = True
-        self.addShapekeyPaths = False
-        self.addNontargetPaths = True
-        self.xScale = .01
-        self.yScale = .01
-        self.objList = noneStr
-        self.alignList = str(alignListStrs[0])
-        self.addPathsFromHiddenLayer = False
-        self.originToGeometry = False        
+        alignListStrs = [*getAlignSegsFn().keys()]
+        arrangeListStrs = [*getAlignPartsFn().keys()]
         
-        context.window_manager.fileselect_add(self)        
+        #default values
+        self.objList = noneStr
+        self.partMatchList = str(arrangeListStrs[-1])
+        self.alignList = str(alignListStrs[-1])
+        
+        context.window_manager.fileselect_add(self)
+        
         return {'RUNNING_MODAL'}
 
-    
-def register():
-    bpy.utils.register_class(ObjectImportShapekeys)
+def menuImportShapeKeys(self, context):
+    self.layout.operator(ObjectImportShapeKeys.bl_idname, 
+        text="Import Paths & Shape Keys (.svg)")
 
+def register():
+    bpy.utils.register_class(ObjectImportShapeKeys)
+    bpy.types.INFO_MT_file_import.append(menuImportShapeKeys)
 
 def unregister():
-    bpy.utils.unregister_class(ObjectImportShapekeys)
+    bpy.utils.unregister_class(ObjectImportShapeKeys)
+    bpy.types.INFO_MT_file_import.remove(menuImportShapeKeys)
 
 if __name__ == "__main__":
     register()
 
-###################################################### addon code start ######################################################
+###################### addon code start ####################
 
 DEF_ERR_MARGIN = 0.0001
+hiddenLayerAttr = 'display:none'
 
 class OrderedSet(OrderedDict):        
     def add(self, item):
@@ -144,23 +200,98 @@ class OrderedSet(OrderedDict):
         return super.keys().__iter__()
         
     #...Other methods to be added when needed
-
+    
+class Part():
+    def __init__(self, segments, isClosed):
+        self.segs = segments
+        self.isClosed = isClosed
+        
+        if(len(segments) > 0):
+            self.partToClose = self.isContinuous()
+            
+    def copy(self, start, end):
+        if(start == None):
+            start = 0
+        if(end == None):
+            end = len(self.segs)
+        return Part(self.segs[start:end], None)#IsClosing not defined, so set to None 
+        
+    def getSeg(self, idx):
+        return self.segs[idx]
+        
+    def getSegs(self):
+        return self.segs
+        
+    def getSegsCopy(self, start, end):
+        if(start == None):
+            start = 0
+        if(end == None):
+            end = len(self.segs)
+        return self.segs[start:end]
+        
+    def bbox(self):
+        leftBot_rgtTop = [[None]*2,[None]*2] 
+        for seg in self.segs:
+            bb = bboxCubicBezier(seg)
+            for i in range(0, 2):
+                if (leftBot_rgtTop[0][i] == None or bb[0][i] < leftBot_rgtTop[0][i]):
+                    leftBot_rgtTop[0][i] = bb[0][i]
+            for i in range(0, 2):
+                if (leftBot_rgtTop[1][i] == None or bb[1][i] > leftBot_rgtTop[1][i]):
+                    leftBot_rgtTop[1][i] = bb[1][i]
+                    
+        return leftBot_rgtTop
+    
+    def isContinuous(self):
+        return cmplxCmpWithMargin(self.segs[0].start, self.segs[-1].end)
+        
+    def getSegCnt(self):
+        return len(self.segs)
+        
+    def length(self, error):
+        return sum(seg.length(error = error) for seg in self.segs)
+        
 class PathElem:
     def __init__(self, path, attributes):
-        self.path = path
+        self.parts = getDisconnParts(path)
         self.pathId = attributes['id'].value
         self.attributes = attributes
-        self._splineIdxs = None
-        self.toClose = False
+
+    def getPartCnt(self):
+        return len(self.parts)
         
-    def setSplineIdxs(self, splineIdxs):
-        self._splineIdxs = splineIdxs
+    def getPartView(self):
+        p = Part([seg for part in self.parts for seg in part.getSegs()], None)
+        return p
+    
+    def getPartBoundaryIdxs(self):
+        cumulCntList = set()
+        cumulCnt = 0
         
-    def getSplineIdxs(self):
-        if(self._splineIdxs == None):
-            self._splineIdxs = getIdxsForDiscontinuousPaths([self.path])
-        return self._splineIdxs
+        for p in self.parts:
+            cumulCnt += p.getSegCnt()
+            cumulCntList.add(cumulCnt)
+            
+        return cumulCntList
         
+    def updatePartsList(self, segCntsPerPart, byPart):
+        monolithicSegList = [seg for part in self.parts for seg in part.getSegs()]
+        self.parts.clear()
+        
+        for i in range(0, len(segCntsPerPart)):
+            if( i == 0):
+                currIdx = 0
+            else:
+                currIdx = segCntsPerPart[i-1]
+                
+            nextIdx = segCntsPerPart[i]
+            isClosed = None
+            
+            if(byPart == True and i < len(self.parts)):
+                isClosed = self.parts[i].isClosed  # Let's retain as far as possible
+                
+            self.parts.append(Part(monolithicSegList[currIdx:nextIdx], isClosed))
+            
     def __repr__(self):
         return self.pathId
         
@@ -174,61 +305,72 @@ class BlenderBezierPoint:
     def __repr__(self):
         return str(self.pt)
 
-def main(infilePath, shapekeyAttribName, byGroup, byAttrib, addShapekeyPaths, addNontargetPaths, scale, zVal, copyObjName, 
-         alignOrder, pathsFromHiddenLayer, originToGeometry):
+def getPathElemMap(doc, pathsFromHiddenLayer):
+    elemMap = {}
+    for pathXMLElem in doc.getElementsByTagName('path'):
+        if (isElemSelectable(pathXMLElem, pathsFromHiddenLayer)):
+            idAttr = pathXMLElem.getAttribute('id')
+            pathElem = PathElem(parse_path(pathXMLElem.getAttribute('d')), pathXMLElem.attributes)
+            elemMap[idAttr] = pathElem
+    return elemMap
+
+def main(infilePath, shapeKeyAttribName, byGroup, byAttrib, addShapeKeyPaths, 
+            addNontargetPaths, scale, zVal, resolution, copyObjName, partArrangeOrder, alignOrder, 
+                pathsFromHiddenLayer, originToGeometry):
              
     doc = minidom.parse(infilePath)
-    
-    pathElemsMap = {pathElem.getAttribute('id'): PathElem(parse_path(pathElem.getAttribute('d')), pathElem.attributes) 
-        for pathElem in doc.getElementsByTagName('path')        
-            if (pathsFromHiddenLayer == True or getParentLayer(pathElem).getAttribute('style') != 'display:none')}
+        
+    pathElemsMap = getPathElemMap(doc, pathsFromHiddenLayer)
             
     pathElems = [*pathElemsMap.values()]
-    normalizeSegments(pathElems)
-    
-    if(alignOrder != noneStr):
-        alignPaths(pathElemsMap, alignOrder)
 
-    targetShapekeyMap = {}
-    allShapekeyIdsSet = set()
+    normalizePathElems(pathElems, alignOrder, partArrangeOrder)
+    
+    targetShapeKeyMap = {}
+    allShapeKeyIdsSet = set()
     
     if(byGroup == True):
-        updateShapekeyMapByGroup(targetShapekeyMap, allShapekeyIdsSet, doc, pathsFromHiddenLayer)
+        updateShapeKeyMapByGroup(targetShapeKeyMap, allShapeKeyIdsSet, doc, pathsFromHiddenLayer)
 
     if(byAttrib == True):
-        updateShapekeyMapByAttrib(targetShapekeyMap, pathElemsMap, allShapekeyIdsSet, shapekeyAttribName)
+        updateShapeKeyMapByAttrib(targetShapeKeyMap, pathElemsMap, allShapeKeyIdsSet, shapeKeyAttribName)
     
     #List of lists with all the interdependent paths that need to be homogenized
-    dependentPathIdsSets = getDependentPathIdsSets(targetShapekeyMap)
+    dependentPathIdsSets = getDependentPathIdsSets(targetShapeKeyMap)
 
-    for dependentPathIdsSet in dependentPathIdsSets:
+    byPart = (partArrangeOrder != noneStr)
+    for prntIdx, dependentPathIdsSet in enumerate(dependentPathIdsSets):
         dependentPathsSet = [pathElemsMap.get(dependentPathId) for dependentPathId in dependentPathIdsSet 
                              if pathElemsMap.get(dependentPathId) != None]
-                             
-        splineIdxs = makePathsHomogeneous(dependentPathsSet)
+                    
+        addMissingSegs(dependentPathsSet, byPart = byPart, resolution = resolution)
         
-        allToClose = True
+        bIdxs = set()
+        for pathElem in dependentPathsSet:
+            bIdxs = bIdxs.union(pathElem.getPartBoundaryIdxs())
+        
+        for pathElem in dependentPathsSet:
+            pathElem.updatePartsList(sorted(list(bIdxs)), byPart)
+            
+        #All will have same part count by now        
+        allToClose = [all(pathElem.parts[j].partToClose for pathElem in dependentPathsSet) 
+            for j in range(0, len(dependentPathsSet[0].parts))]
+        
         #All interdependent paths will have the same no of splines with the same no of bezier points
         for pathElem in dependentPathsSet:
-            pathElem.setSplineIdxs(splineIdxs)
-            if(pathElem.toClose == False):
-                allToClose = False
-                
-        #Close only if all the paths are closed and have just one continuous segment
-        allToClose = allToClose and len(splineIdxs) == 1
-        
-        for pathElem in dependentPathsSet:
-            pathElem.toClose = allToClose
-
-    objPathIds = set(targetShapekeyMap.keys())
+            for j, part in enumerate(pathElem.parts):
+                part.partToClose = allToClose[j]
+            
+    objPathIds = set(targetShapeKeyMap.keys())
     
     if(addNontargetPaths == True):
-        nontargetIds = (pathElemsMap.keys() - targetShapekeyMap.keys()) - allShapekeyIdsSet    
+        nontargetIds = (pathElemsMap.keys() - targetShapeKeyMap.keys()) - allShapeKeyIdsSet    
         objPathIds = objPathIds.union(nontargetIds)
 
-    if(addShapekeyPaths == True):
-        shapekeyIdsToAdd = allShapekeyIdsSet - targetShapekeyMap.keys() #in case shapekeys are also targets
-        objPathIds = objPathIds.union(shapekeyIdsToAdd.intersection(pathElemsMap.keys()))
+    if(addShapeKeyPaths == True):
+        #in case shapeKeys are also targets
+        shapeKeyIdsToAdd = allShapeKeyIdsSet - targetShapeKeyMap.keys() 
+        objPathIds = objPathIds.union(shapeKeyIdsToAdd.intersection(pathElemsMap.keys()))
     
     copyObj = bpy.data.objects.get(copyObjName)#Can be None
     
@@ -237,17 +379,18 @@ def main(infilePath, shapekeyAttribName, byGroup, byAttrib, addShapekeyPaths, ad
     for objPathId in objPathIds:
         addSvg2Blender(objMap, pathElemsMap[objPathId], scale, zVal, copyObj, originToGeometry)
     
-    for pathElemId in targetShapekeyMap.keys():
+    for pathElemId in targetShapeKeyMap.keys():
         pathObj = objMap[pathElemId]
         pathObj.shape_key_add('Basis')
-        shapekeyElemIds = targetShapekeyMap[pathElemId].keys()
-        for shapekeyElemId in shapekeyElemIds:
-            shapekeyElem = pathElemsMap.get(shapekeyElemId)
-            if(shapekeyElem != None):#Maybe no need after so many checks earlier
-                copyShapekey(pathObj, shapekeyElem, shapekeyElemId, scale, zVal, originToGeometry)    
+        shapeKeyElemIds = targetShapeKeyMap[pathElemId].keys()
+        for shapeKeyElemId in shapeKeyElemIds:
+            shapeKeyElem = pathElemsMap.get(shapeKeyElemId)
+            if(shapeKeyElem != None):#Maybe no need after so many checks earlier
+                addShapeKey(pathObj, shapeKeyElem, shapeKeyElemId, scale, zVal, originToGeometry)    
+
     return objMap
 
-#Needed because sometimes the pathtools adds unwanted segments at the end due to floating point conversion
+#Avoid errors due to floating point conversions/comparisons
 def cmplxCmpWithMargin(complex1, complex2, margin = DEF_ERR_MARGIN):
     return floatCmpWithMargin(complex1.real, complex2.real, margin) and floatCmpWithMargin(complex1.imag, 
                               complex2.imag, margin)
@@ -255,21 +398,44 @@ def cmplxCmpWithMargin(complex1, complex2, margin = DEF_ERR_MARGIN):
 def floatCmpWithMargin(float1, float2, margin = DEF_ERR_MARGIN):
     return abs(float1 - float2) < margin 
 
-def getParentLayer(elem):
+#TODO: Would be more conditions like defs. Need a better solution
+def isElemSelectable(elem, pathsFromHiddenLayer):
+    return getParentInHierarchy(elem, 'defs') == None and \
+        (pathsFromHiddenLayer == True or not isInHiddenLayer(elem))
+
+def getParentInHierarchy(elem, parentTag):
     parent = elem.parentNode 
-    while(parent != None and (parent.tagName != 'g' or parent.parentNode.tagName != 'svg')):
+    
+    while(parent != None and parent.parentNode != None and parent.tagName != parentTag):
         parent = parent.parentNode 
+        
+    #TODO: Better way to detect the Document node
+    if(parent.parentNode == None):
+        return None
+        
     return parent
 
-def getDependentPathIdsSets(shapekeyMap):
+def isInHiddenLayer(elem):
+    parent = elem.parentNode 
+    
+    while(parent != None and (parent.tagName != 'g' or 
+        (parent.parentNode != None and  parent.parentNode.tagName != 'svg'))):
+        parent = parent.parentNode 
+        
+    if(parent != None):
+        return parent.getAttribute('style').startswith(hiddenLayerAttr)
+        
+    return True
+
+def getDependentPathIdsSets(shapeKeyMap):
     pathIdSets = []
     allAddedPathIds = set()
-    for targetId in shapekeyMap.keys():
-        #Keep track of the added path Ids since the target can be a shapekey, 
-        #or a target of one of the shapekeys of this target (many->many relation)
+    for targetId in shapeKeyMap.keys():
+        #Keep track of the added path Ids since the target can be a shapeKey, 
+        #or a target of one of the shapeKeys of this target (many->many relation)
         if(targetId not in allAddedPathIds):
             pathIdSet = set()
-            addDependentPathsToList(shapekeyMap, pathIdSet, targetId)
+            addDependentPathsToList(shapeKeyMap, pathIdSet, targetId)
             pathIdSets.append(pathIdSet)
             allAddedPathIds = allAddedPathIds.union(pathIdSet)
     return pathIdSets
@@ -282,29 +448,29 @@ def getKeysetWithValue(srcMap, value):
           keySet.add(key)
     return keySet
 
-#All the shapekeys and their other targets are added recursively
-def addDependentPathsToList(shapekeyMap, pathIdSet, targetId):
+#All the shape keys and their other targets are added recursively
+def addDependentPathsToList(shapeKeyMap, pathIdSet, targetId):
     if(targetId in pathIdSet):
         return pathIdSet
         
     pathIdSet.add(targetId)
-    shapekeyElemIdMap = shapekeyMap.get(targetId)
+    shapeKeyElemIdMap = shapeKeyMap.get(targetId)
     
-    if(shapekeyElemIdMap == None):
+    if(shapeKeyElemIdMap == None):
         return pathIdSet
         
-    shapekeyElemIdList = shapekeyElemIdMap.keys()
-    if(shapekeyElemIdList == None):
+    shapeKeyElemIdList = shapeKeyElemIdMap.keys()
+    if(shapeKeyElemIdList == None):
         return pathIdSet
         
-    for shapekeyElemId in shapekeyElemIdList:
-        #Recuresively add the Ids that are shapekey of this shapekey
-        addDependentPathsToList(shapekeyMap, pathIdSet, shapekeyElemId)
+    for shapeKeyElemId in shapeKeyElemIdList:
+        #Recuresively add the Ids that are shape key of this shape key
+        addDependentPathsToList(shapeKeyMap, pathIdSet, shapeKeyElemId)
         
-        #Recursively add the Ids that are other targets of this shapekey
-        keyset = getKeysetWithValue(shapekeyMap, shapekeyElemId)
+        #Recursively add the Ids that are other targets of this shape key
+        keyset = getKeysetWithValue(shapeKeyMap, shapeKeyElemId)
         for key in keyset:
-            addDependentPathsToList(shapekeyMap, pathIdSet, key)
+            addDependentPathsToList(shapeKeyMap, pathIdSet, key)
         
     return pathIdSet
 
@@ -316,39 +482,100 @@ def getAllPathElemsInGroup(parentElem, pathElems):
             elif(childNode.tagName == 'g'):
                 getAllPathElemsInGroup(childNode, pathElems)
 
-def updateShapekeyMapByGroup(targetShapekeyMap, allShapekeyIdsSet, doc, pathsFromHiddenLayer):
+def updateShapeKeyMapByGroup(targetShapeKeyMap, allShapeKeyIdsSet, doc, pathsFromHiddenLayer):
     groupElems = [groupElem for groupElem in doc.getElementsByTagName('g') 
-                  if (groupElem.parentNode.tagName != 'svg' and (pathsFromHiddenLayer == True 
-                      or getParentLayer(groupElem).getAttribute('style') != 'display:none')) ]
+      if (groupElem.parentNode.tagName != 'svg' and 
+        isElemSelectable(groupElem, pathsFromHiddenLayer))]
         
     for groupElem in groupElems:
         pathElems = []
         getAllPathElemsInGroup(groupElem, pathElems)
-        if(pathElems != None and len(pathElems) > 0 ):
+        if(pathElems != None and len(pathElems) > 1 ):
             targetId = pathElems[0].getAttribute('id')
-            if(targetShapekeyMap.get(targetId) == None):
-                targetShapekeyMap[targetId] = OrderedSet()
+            if(targetShapeKeyMap.get(targetId) == None):
+                targetShapeKeyMap[targetId] = OrderedSet()
                 
             for i in range(1, len(pathElems)):
-                shapekeyId = pathElems[i].getAttribute('id')
-                targetShapekeyMap[targetId].add(shapekeyId)
-                allShapekeyIdsSet.add(shapekeyId)
+                shapeKeyId = pathElems[i].getAttribute('id')
+                targetShapeKeyMap[targetId].add(shapeKeyId)
+                allShapeKeyIdsSet.add(shapeKeyId)
 
-def updateShapekeyMapByAttrib(targetShapekeyMap, pathElemsMap, allShapekeyIdsSet, shapekeyAttribName):
+def updateShapeKeyMapByAttrib(targetShapeKeyMap, pathElemsMap, \
+    allShapeKeyIdsSet, shapeKeyAttribName):
     for key in pathElemsMap.keys():
         targetPathElem = pathElemsMap[key]
         attributes = targetPathElem.attributes        
-        shapekeyIdAttrs = attributes.get(shapekeyAttribName)
-        if(shapekeyIdAttrs != None):
-            shapekeyIds = shapekeyIdAttrs.value
-            shapekeyIdsStr = str(shapekeyIds)
-            shapekeyIdList = shapekeyIdsStr.replace(' ','').split(',')
-            if(targetShapekeyMap.get(key) == None):
-                targetShapekeyMap[key] = OrderedSet()
-            for keyId in shapekeyIdList:
+        shapeKeyIdAttrs = attributes.get(shapeKeyAttribName)
+        if(shapeKeyIdAttrs != None):
+            shapeKeyIds = shapeKeyIdAttrs.value
+            shapeKeyIdsStr = str(shapeKeyIds)
+            shapeKeyIdList = shapeKeyIdsStr.replace(' ','').split(',')
+            if(targetShapeKeyMap.get(key) == None):
+                targetShapeKeyMap[key] = OrderedSet()
+            for keyId in shapeKeyIdList:
                 if(pathElemsMap.get(keyId) != None):
-                    targetShapekeyMap[key].add(keyId)
-                    allShapekeyIdsSet.add(keyId)
+                    targetShapeKeyMap[key].add(keyId)
+                    allShapeKeyIdsSet.add(keyId)
+
+def bboxArea(leftBot_rgtTop):
+    return abs((leftBot_rgtTop[1][0]-leftBot_rgtTop[0][0]) * \
+        (leftBot_rgtTop[1][1]-leftBot_rgtTop[0][1]))
+
+#see https://stackoverflow.com/questions/24809978/calculating-the-bounding-box-of-cubic-bezier-curve
+#(3 D - 9 C + 9 B - 3 A) t^2 + (6 A - 12 B + 6 C) t + 3 (B - A)
+def bboxCubicBezier(bezier):    
+    def evalBez(AA, BB, CC, DD, t):
+        return AA * (1 - t) * (1 - t) * (1 - t) + \
+                3 * BB * t * (1 - t) * (1 - t) + \
+                    3 * CC * t * t * (1 - t) + \
+                        DD * t * t * t
+        
+    A = [bezier.start.real, bezier.start.imag]
+    B = [bezier.control1.real, bezier.control1.imag]
+    C = [bezier.control2.real, bezier.control2.imag]
+    D = [bezier.end.real, bezier.end.imag]
+    
+    MINXY = [min([A[0], D[0]]), min([A[1], D[1]])]
+    MAXXY = [max([A[0], D[0]]), max([A[1], D[1]])]
+    leftBot_rgtTop = [MINXY, MAXXY]
+
+    a = [3 * D[i] - 9 * C[i] + 9 * B[i] - 3 * A[i] for i in range(0, 2)]
+    b = [6 * A[i] - 12 * B[i] + 6 * C[i] for i in range(0, 2)]
+    c = [3 * (B[i] - A[i]) for i in range(0, 2)]
+    
+    solnsxy = []
+    for i in range(0, 2):
+        solns = []
+        if(a[i] == 0):
+            if(b[i] == 0):
+                solns.append(0)#Independent of t so lets take the starting pt
+            else:
+                solns.append(c[i] / b[i])
+        else:
+            rootFact = b[i] * b[i] - 4 * a[i] * c[i]
+            if(rootFact >=0 ):
+                #Two solutions with + and - sqrt
+                solns.append((-b[i] + sqrt(rootFact)) / (2 * a[i]))
+                solns.append((-b[i] - sqrt(rootFact)) / (2 * a[i]))
+        solnsxy.append(solns)
+    
+    for i, soln in enumerate(solnsxy):
+        for j, t in enumerate(soln):
+            if(t < 1 and t > 0):                
+                co = evalBez(A[i], B[i], C[i], D[i], t)
+                if(co < leftBot_rgtTop[0][i]):
+                    leftBot_rgtTop[0][i] = co
+                if(co > leftBot_rgtTop[1][i]):
+                    leftBot_rgtTop[1][i] = co 
+                                       
+    return leftBot_rgtTop
+
+def getLineSegment(start, end, t0, t1):
+    xt0, yt0 = (1 - t0) * start.real + t0 * end.real , (1 - t0) * start.imag + t0 * end.imag
+    xt1, yt1 = (1 - t1) * start.real + t1 * end.real , (1 - t1) * start.imag + t1 * end.imag
+    
+    return CubicBezier(complex(xt0, yt0), complex(xt0, yt0), 
+            complex(xt1, yt1), complex(xt1, yt1))
 
 #see https://stackoverflow.com/questions/878862/drawing-part-of-a-b%c3%a9zier-curve-by-reusing-a-basic-b%c3%a9zier-curve-function/879213#879213
 def getCurveSegment(seg, t0, t1):    
@@ -358,6 +585,10 @@ def getCurveSegment(seg, t0, t1):
         tt = t1
         t1 = t0
         t0 = tt
+    
+    #Let's make at least the line segments of predictable length :)
+    if(ctrlPts[0] == ctrlPts[1] and ctrlPts[2] == ctrlPts[3]):
+        return getLineSegment(ctrlPts[0], ctrlPts[2], t0, t1)
         
     x1, y1 = ctrlPts[0].real, ctrlPts[0].imag
     bx1, by1 = ctrlPts[1].real, ctrlPts[1].imag
@@ -387,177 +618,291 @@ def getCurveSegment(seg, t0, t1):
     yc = qyb*u0 + qyd*t0
     yd = qyb*u1 + qyd*t1
     
-    return CubicBezier(complex(xa, ya), complex(xb, yb), complex(xc, yc), complex(xd, yd))
+    return CubicBezier(complex(xa, ya), complex(xb, yb), 
+            complex(xc, yc), complex(xd, yd))
 
 
-def sliceCubicBezierEqually(origSeg, noSegs):
+def subdivideSeg(origSeg, noSegs):
     if(noSegs < 2):
         return [origSeg]
+        
     segs = []
     oldT = 0
-    
+    segLen = origSeg.length(error = DEF_ERR_MARGIN) / noSegs
     for i in range(0, noSegs-1):
         t = float(i+1) / noSegs
-        segs.append(getCurveSegment(origSeg, oldT, t))
+        cBezier = getCurveSegment(origSeg, oldT, t)
+        segs.append(cBezier)
         oldT = t
     
-    segs.append(getCurveSegment(origSeg, oldT, 1))
+    cBezier = getCurveSegment(origSeg, oldT, 1)
+    segs.append(cBezier)
     
     return segs
     
 
-#Slice counts are calculated by length of the segments
-def getSliceCntPerSeg(pathElem, toAddCnt):
+def getSubdivCntPerSeg(part, toAddCnt):
     
     class ItemWrapper:
-        def __init__(self, item, idx):
-            self.item = item
+        def __init__(self, idx, item):
             self.idx = idx
-            #Default precision is very high, very expensive
-            self.length = item.length(t0=0, t1=1, error=.0001)
+            self.item = item
+            self.length = item.length(error = DEF_ERR_MARGIN)
         
-    class ListWrapper:
-        def __init__(self, list):
-            self.list = []
-            for idx in range(0, len(list)):
-                item = list[idx]
-                self.list.append(ItemWrapper(item, idx))
+    class PartWrapper:
+        def __init__(self, part):
+            self.itemList = []
+            self.itemCnt = len(part.getSegs())
+            for idx, seg in enumerate(part.getSegs()):
+                self.itemList.append(ItemWrapper(idx, seg))
+        
+    partWrapper = PartWrapper(part)
+    partLen = part.length(DEF_ERR_MARGIN)
+    avgLen = partLen / (partWrapper.itemCnt + toAddCnt)
 
-    path = pathElem.path
-    pathWrapper = ListWrapper(path)
-    sortedPath = sorted(pathWrapper.list, key=lambda x: x.length, reverse = True)
-    cnts = [0]*len(path)
+    segsToDivide = [item for item in partWrapper.itemList if item.length >= avgLen]
+    segToDivideCnt = len(segsToDivide)
+    avgLen = sum(item.length for item in segsToDivide) / (segToDivideCnt + toAddCnt)
+
+    segsToDivide = sorted(segsToDivide, key=lambda x: x.length, reverse = True)
+
+    cnts = [0] * partWrapper.itemCnt
     addedCnt = 0
-    pathLen = sum([item.length for item in sortedPath])
     
-    for i in range(0, len(path)):
-        segLen = sortedPath[i].length
+    
+    for i in range(0, segToDivideCnt):
+        segLen = segsToDivide[i].length
 
-        segCnt = int(round(toAddCnt * segLen/pathLen))
-            
-        if(segCnt == 0):
+        divideCnt = int(round(segLen/avgLen)) - 1
+        if(divideCnt == 0):
             break
             
-        if((addedCnt + segCnt) >= toAddCnt):
-            cnts[sortedPath[i].idx] = toAddCnt - addedCnt
+        if((addedCnt + divideCnt) >= toAddCnt):
+            cnts[segsToDivide[i].idx] = toAddCnt - addedCnt
             addedCnt = toAddCnt
             break
-            
-        cnts[sortedPath[i].idx] = segCnt
 
-        addedCnt += segCnt
+        cnts[segsToDivide[i].idx] = divideCnt
+
+        addedCnt += divideCnt
         
-    #Take care of some extreme cases
+    #TODO: Verify if needed
     while(toAddCnt > addedCnt):
-        for i in range(0, len(sortedPath)):
-            cnts[sortedPath[i].idx] += 1
+        for i in range(0, segToDivideCnt):
+            cnts[segsToDivide[i].idx] += 1
             addedCnt += 1
             if(toAddCnt == addedCnt):
                 break
-
+                
     return cnts
+
+def getDisconnParts(path):
+    prevSeg = None
+    disconnParts = []
+    segs = []
     
+    for i in range(0, len(path)):
+        seg = path[i]
+        if((prevSeg== None) or not cmplxCmpWithMargin(prevSeg.end, seg.start)):
+            if(len(segs) > 0):
+                disconnParts.append(Part(segs, segs[-1].isClosing))
+            segs = []
+        prevSeg = seg
+        segs.append(seg)
+
+    if(len(path) > 0 and len(segs) > 0):
+        disconnParts.append(Part(segs, segs[-1].isClosing))
+
+    return disconnParts
+
+def normalizePathElems(pathElems, alignOrder, partArrangeOrder):
+    for pathElem in pathElems:
+        convertToCubicBezier(pathElem)
+        alignPath(pathElem, alignOrder, partArrangeOrder)
+
+#Resolution is mapped to parts
+#The value 100 means 1 segment per unit length (whatever it is in source SVG) of Part
+def getSegCntForResolution(part, resolution):
+    segCnt = part.getSegCnt()    
+    segCntForRes = int(part.length(error = DEF_ERR_MARGIN) * resolution / 100)
+    
+    if(segCnt > segCntForRes):
+        return segCnt
+    else:
+        return segCntForRes
+
 #Make all the paths to have the maximum number of segments in the set
-def addMissingSegs(pathElems):    
+def addMissingSegs(pathElems, byPart, resolution):    
+    maxSegCntsByPart = []
+    samePartCnt = True
     maxSegCnt = 0
     
+    for i, pathElem in enumerate(pathElems):
+        if(byPart == False):
+            segCnt = getSegCntForResolution(pathElem.getPartView(), resolution)
+            if(segCnt > maxSegCnt):
+                maxSegCnt = segCnt
+
+        else:
+            for j, part in enumerate(pathElem.parts):
+                partSegCnt = getSegCntForResolution(part, resolution)
+                if(j == len(maxSegCntsByPart)):
+                    maxSegCntsByPart.append(partSegCnt)
+                elif(partSegCnt > maxSegCntsByPart[j]):
+                    maxSegCntsByPart[j] = partSegCnt
+
     for pathElem in pathElems:
-        path = pathElem.path
-        if(len(path) > maxSegCnt):
-            maxSegCnt = len(path)
+
+        if(byPart == False):
+            partView = pathElem.getPartView()
+            segCnt = partView.getSegCnt()
+            diff = maxSegCnt - segCnt
+
+            if(diff > 0):
+                cnts = getSubdivCntPerSeg(partView, diff)
+                cumulSegIdx = 0
+                for j in range(0, len(pathElem.parts)):
+                    part = pathElem.parts[j]
+                    newSegs = []
+                    for k, seg in enumerate(part.getSegs()):
+                        numSubdivs = cnts[cumulSegIdx] + 1
+                        newSegs += subdivideSeg(seg, numSubdivs)
+                        cumulSegIdx += 1
+                    
+                    #isClosed won't be used, but let's update anyway
+                    pathElem.parts[j] = Part(newSegs, part.isClosed)
+            
+        else:
+            for j in range(0, len(pathElem.parts)):
+                part = pathElem.parts[j]
+                newSegs = []
+
+                partSegCnt = part.getSegCnt()
+
+                #TODO: Adding everything in the last part?
+                if(j == (len(pathElem.parts)-1) and 
+                    len(maxSegCntsByPart) > len(pathElem.parts)):
+                    
+                    diff = sum(maxSegCntsByPart[j:]) - partSegCnt
+                else:    
+                    diff = maxSegCntsByPart[j] - partSegCnt
+                    
+                if(diff > 0):
+                    cnts = getSubdivCntPerSeg(part, diff)
+
+                    for k, seg in enumerate(part.getSegs()):
+                        seg = part.getSeg(k)
+                        subdivCnt = cnts[k] + 1 #1 for the existing one
+                        newSegs += subdivideSeg(seg, subdivCnt)
+                    
+                    #isClosed won't be used, but let's update anyway
+                    pathElem.parts[j] = Part(newSegs, part.isClosed)
+
+#format (key, value): [(order_str, seg_cmp_fn), ...] 
+#(Listed clockwise in the dropdown)
+#round-off to int as we don't want to be over-precise with the comparison... 
+#...der Gleichheitsbedingung wird lediglich  visuell geprueft werden :)
+def getAlignSegsFn():
+    return OrderedDict([
+        ('Top-Left', lambda x, y: ((int(x.imag) < int(y.imag)) or \
+            (int(x.imag) == int(y.imag) and int(x.real) < int(y.real)))),
+            
+        ('Top-Right', lambda x, y: ((int(x.imag) < int(y.imag)) or \
+            (int(x.imag) == int(y.imag) and int(x.real) > int(y.real)))),
+
+        ('Right-Top', lambda x, y: ((int(x.real) > int(y.real)) or \
+            (int(x.real) == int(y.real) and int(x.imag) < int(y.imag)))),
+
+        ('Right-Bottom', lambda x, y: ((int(x.real) > int(y.real)) or \
+            (int(x.real) == int(y.real) and int(x.imag) > int(y.imag)))),
+            
+        ('Bottom-Right', lambda x, y: ((int(x.imag) > int(y.imag)) or \
+            (int(x.imag) == int(y.imag) and int(x.real) > int(y.real)))),
+            
+        ('Bottom-left', lambda x, y: ((int(x.imag) > int(y.imag)) or \
+            (int(x.imag) == int(y.imag) and int(x.real) < int(y.real)))),
+            
+        ('Left-Bottom', lambda x, y: ((int(x.real) < int(y.real)) or \
+            (int(x.real) == int(y.real) and int(x.imag) > int(y.imag)))),
+            
+        ('Left-Top', lambda x, y: ((int(x.real) < int(y.real)) or \
+            (int(x.real) == int(y.real) and int(x.imag) < int(y.imag)))),
+        ])
     
-    for pathElem in pathElems:
-        path = pathElem.path
-        newSegs = []
-        segCnt = len(path)
-        diff = maxSegCnt - segCnt
-        if(diff > 0):
-            cnts = getSliceCntPerSeg(pathElem, diff)
-            segCnt = len(path)
-            
-            for i in range(0, segCnt):
-                seg = path[i]
-                numSlices = cnts[i] + 1
-                newSegs += sliceCubicBezierEqually(seg, numSlices)
-            path.clear()
-            path += newSegs
 
-#All path segments must have been already converted to cubic bezier
-def makePathsHomogeneous(pathElems):
-    paths = [pathElem.path for pathElem in  pathElems]
-    addMissingSegs(pathElems)
-    return getIdxsForDiscontinuousPaths(paths)
-
-#round-off to int as we don't want to be over-precise with the comparison... der Gleichheitsbedingung wird lediglich  visuell geprueft werden :)
-#format (key, value): [(order_str, [oneseg_cmp_fn, multiseg_sort_fn]), ...]
-def getAlignOrderFns():
-    return OrderedDict([('left-bottom', [lambda x, y: ((int(x.real) < int(y.real)) or (int(x.real) == int(y.real) and int(x.imag) > int(y.imag))), 
-                                              lambda x: (int(x[0].start.real), -int(x[0].start.imag))]),
-                             ('left-top', [lambda x, y: ((int(x.real) < int(y.real)) or (int(x.real) == int(y.real) and int(x.imag) < int(y.imag))), 
-                                           lambda x: (int(x[0].start.real), int(x[0].start.imag))]),
+def getAlignPartsFn():
+    
+    #Order of the list returned by bbox - Left[0,0]-bottom[0,1]-right[1,0]-top[1,1]
+    return OrderedDict([            
+        #Sorting in reverse order so that the bigger parts get matched first
+        ('Node Count ', lambda part: -1 * part.getSegCnt()),
+    
+        ('BBox Area', lambda part: -1 * bboxArea(part.bbox())),
         
-                             ('right-bottom', [lambda x, y: ((int(x.real) > int(y.real)) or (int(x.real) == int(y.real) and int(x.imag) > int(y.imag))), 
-                                               lambda x: (-int(x[0].start.real), -int(x[0].start.imag))]),
-                             ('right-top', [lambda x, y: ((int(x.real) > int(y.real)) or (int(x.real) == int(y.real) and int(x.imag) < int(y.imag))), 
-                                            lambda x: (-int(x[0].start.real), int(x[0].start.imag))]),
+        ('BBox Height', lambda part: -1 * (part.bbox()[1][1] - part.bbox()[0][1])),
+        
+        ('BBox Width', lambda part: -1 * (part.bbox()[1][0] - part.bbox()[0][0])),
+        
+        ('BBox:Top-Left', lambda part: (part.bbox()[0][1], #Top of SVG is bottom of blender
+            part.bbox()[0][0])),
             
-                             ('top-left', [lambda x, y: ((int(x.imag) < int(y.imag)) or (int(x.imag) == int(y.imag) and int(x.real) < int(y.real))), 
-                                           lambda x: (int(x[0].start.imag), int(x[0].start.real))]),
-                             ('top-right', [lambda x, y: ((int(x.imag) < int(y.imag)) or (int(x.imag) == int(y.imag) and int(x.real) > int(y.real))), 
-                                            lambda x: (int(x[0].start.imag), -int(x[0].start.real))]),
+        ('BBox:Top-Right', lambda part: (part.bbox()[0][1], 
+            part.bbox()[1][0])),
             
-                             ('bottom-left', [lambda x, y: ((int(x.imag) > int(y.imag)) or (int(x.imag) == int(y.imag) and int(x.real) < int(y.real))), 
-                                              lambda x: (-int(x[0].start.imag), int(x[0].start.real))]),
-                             ('bottom-right', [lambda x, y: ((int(x.imag) > int(y.imag)) or (int(x.imag) == int(y.imag) and int(x.real) > int(y.real))), 
-                                               lambda x: (-int(x[0].start.imag), -int(x[0].start.real))]),
-            ])
+        ('BBox:Right-Top', lambda part: (part.bbox()[1][0], 
+            part.bbox()[0][1])),
+            
+        ('BBox:Right-Bottom', lambda part: (part.bbox()[1][0], 
+            part.bbox()[1][1])),
+            
+        ('BBox:Bottom-Right', lambda part: (part.bbox()[1][1], 
+            part.bbox()[1][0])),
 
+        ('BBox:Bottom-left', lambda part: (part.bbox()[1][1], 
+            part.bbox()[0][0])),
 
-def alignPaths(pathElemsMap, alignOrder):
-    cmpFns = getAlignOrderFns()[alignOrder]
-    pathElems = pathElemsMap.values()
-    for pathElem in pathElems:
-        path = pathElem.path
-        copyPath = path[:]
-        path.clear()
-        prevSeg = None
-        discontParts = []
-        for i in range(0, len(copyPath)):
-            seg = copyPath[i]
-            if((prevSeg== None) or not cmplxCmpWithMargin(prevSeg.end, seg.start)):
-                currPart = []
-                discontParts.append(currPart)
-            prevSeg = seg
-            currPart.append(seg)
-        startPt = None
-        startIdx = None
-        if(len(discontParts) == 1 and cmplxCmpWithMargin(discontParts[0][0].start, discontParts[0][-1].end)):
-            for j in range(0, len(discontParts[0])):
-                seg = discontParts[0][j]
-                if(j == 0 or cmpFns[0](seg.start, startPt)):
+        ('BBox:Left-Bottom', lambda part: (part.bbox()[0][0], 
+            part.bbox()[1][1])),
+            
+        ('BBox:Left-Top', lambda part: (part.bbox()[0][0], 
+            part.bbox()[0][1])),
+        ])
+
+def alignPath(pathElem, alignOrderSegs, partArrangeOrder):
+
+    alignSegCmpFn = getAlignSegsFn().get(alignOrderSegs)
+    alignPartCmpFn = getAlignPartsFn().get(partArrangeOrder)
+
+    parts = pathElem.parts[:]
+
+    if(alignPartCmpFn != None):
+        parts = sorted(parts, key = alignPartCmpFn)
+                    
+    startPt = None
+    startIdx = None
+    
+    for i in range(0, len(parts)):
+        
+        #Only truly closed parts
+        if(alignSegCmpFn != None and parts[i].isClosed):
+            for j in range(0, parts[i].getSegCnt()):
+                seg = parts[i].getSeg(j)
+                if(j == 0 or alignSegCmpFn(seg.start, startPt)):
                     startPt = seg.start
                     startIdx = j
-            path += discontParts[0][startIdx:] + discontParts[0][:startIdx]
-        elif(len(discontParts) > 1):
-            discontParts = sorted(discontParts, key = cmpFns[1])
-            for i in range(0, len(discontParts)):
-                path += discontParts[i]                
+            pathElem.parts[i]= Part(parts[i].getSegsCopy(startIdx, None) + \
+                parts[i].getSegsCopy(None, startIdx), parts[i].isClosed)
         else:
-            path += copyPath[:]
+            pathElem.parts[i] = parts[i]
             
-def normalizeSegments(pathElems):
-    for pathElem in pathElems:
-        path = pathElem.path
-        copyPath = path[:]
-        path.clear()
-        numSegs = len(copyPath)
-        prevSeg = copyPath[-1]
-        pathElem.toClose = True
+def convertToCubicBezier(pathElem):
+    for i in range(0, len(pathElem.parts)):
+        part = pathElem.parts[i]
+        newPartSegs = []
         
-        for i in range(0, numSegs):
-            seg = copyPath[i]
+        for seg in part.getSegs():
             if(type(seg).__name__ is 'Line'):
-                segs = [CubicBezier(seg[0], seg[0], seg[1], seg[1])]
+                newPartSegs.append(CubicBezier(seg[0], seg[0], seg[1], seg[1]))
                 
             elif(type(seg).__name__ is 'QuadraticBezier'):
                 cp0 = seg[0]
@@ -566,10 +911,9 @@ def normalizeSegments(pathElems):
                 cp1 = seg[0] + 2/3 *(seg[1]-seg[0])
                 cp2 = seg[2] + 2/3 *(seg[1]-seg[2])
 
-                segs = [CubicBezier(cp0, cp1, cp2, cp3)]
+                newPartSegs.append(CubicBezier(cp0, cp1, cp2, cp3))
                 
             elif(type(seg).__name__ is 'Arc'):
-                segs = []
                 x1, y1 = seg.start.real, seg.start.imag
                 x2, y2 = seg.end.real, seg.end.imag
                 fa = seg.large_arc
@@ -579,72 +923,67 @@ def normalizeSegments(pathElems):
                 curvesPts = a2c(x1, y1, x2, y2, fa, fs, rx, ry, phi)
                 
                 for curvePts in curvesPts:
-                    segs.append(CubicBezier(curvePts[0], curvePts[1], curvePts[2], curvePts[3]))
+                    newPartSegs.append(CubicBezier(curvePts[0], curvePts[1], 
+                        curvePts[2], curvePts[3]))
                     
             elif(type(seg).__name__ is 'CubicBezier'):
-                segs = [seg]
+                newPartSegs.append(seg)
                 
             else:
-                print('Strange! Never thought of this.')
+                print('Strange! Never thought of this.', type(seg).__name__)
+                # ~ assert False    #nope.. let's continue for now
+                continue
             
-            if(cmplxCmpWithMargin(prevSeg.end, segs[0].start) == False):
-                pathElem.toClose = False
+        pathElem.parts[i] = Part(newPartSegs, part.isClosed)
                 
-            path += segs
-            prevSeg = segs[-1]
-        
 #Paths must have already been homogenized
-def copyShapekey(targetCurve, shapekeyElem, shapekeyName, scale, zVal, originToGeometry):
-    splineData = getSplineDataForPath(shapekeyElem, shapekeyElem.getSplineIdxs(), scale, zVal)
+def addShapeKey(targetCurve, shapeKeyElem, shapeKeyName, scale, zVal, originToGeometry):
+    splineData = getSplineDataForPath(shapeKeyElem, scale, zVal)
 
     offsetLocation = Vector([0,0,0])
     if(originToGeometry == True):
         offsetLocation = targetCurve.location
 
-    key = targetCurve.shape_key_add(shapekeyName)
+    key = targetCurve.shape_key_add(shapeKeyName)
 
     i = 0
     for ptSet in splineData:
-        for bezierPt in ptSet:
-            key.data[i].co = Vector(get3DPt(bezierPt.pt, scale, zVal)) - offsetLocation
-            key.data[i].handle_left = Vector(get3DPt(bezierPt.handleLeft, scale, zVal)) - offsetLocation
-            key.data[i].handle_right = Vector(get3DPt(bezierPt.handleRight, scale, zVal)) - offsetLocation
+        for bezierPt in ptSet:            
+            co = Vector(get3DPt(bezierPt.pt, scale, zVal)) - offsetLocation
+            handleLeft = Vector(get3DPt(bezierPt.handleLeft, scale, zVal)) - offsetLocation
+            handleRight = Vector(get3DPt(bezierPt.handleRight, scale, zVal)) - offsetLocation
+            
+            key.data[i].co = co            
+            key.data[i].handle_left = handleLeft
+            key.data[i].handle_right = handleRight
+            
             i += 1
     
 def get3DPt(point, scale, zVal):
-    return [point.real*scale[0], point.imag*scale[1], zVal*scale[2]]
-
-def getIdxsForDiscontinuousPaths(svgpaths):
-    numPaths = len(svgpaths)
-    splineIdxs = set()
-
-    for i in range(0, numPaths):            
-        svgpath = svgpaths[i]        
-        prevSeg = None
-        numSegs = len(svgpath)
-        for j in range(0, numSegs):
-            seg = svgpath[j]
-            if(prevSeg == None or not cmplxCmpWithMargin(prevSeg.end, seg.start)):
-                splineIdxs.add(j)
-            prevSeg = seg
-    return [*sorted(splineIdxs)]
+    return [point.real * scale[0], point.imag * scale[1], zVal * scale[2]]
 
 #All segments must have already been converted to cubic bezier
 def addSvg2Blender(objMap, pathElem, scale, zVal, copyObj, originToGeometry):
     
     pathId = pathElem.pathId
-    splineData = getSplineDataForPath(pathElem, pathElem.getSplineIdxs(), scale, zVal)
-    obj = createCurveFromData(pathId, splineData, copyObj, pathElem.toClose, originToGeometry, scale, zVal)
+    splineData = getSplineDataForPath(pathElem, scale, zVal)
+    
+    obj = createCurveFromData(pathId, splineData, copyObj, pathElem, 
+            originToGeometry, scale, zVal)
+            
     objMap[pathId] = obj
 
-def createCurveFromData(curveName, splineData, copyObj, toClose, originToGeometry, scale, zVal):
-    curveData = getNewCurveData(bpy, splineData, copyObj, toClose, scale, zVal)
+def createCurveFromData(curveName, splineData, copyObj, pathElem, 
+        originToGeometry, scale, zVal):
+    
+    curveData = getNewCurveData(bpy, splineData, copyObj, pathElem, scale, zVal)
     obj = bpy.data.objects.new(curveName, curveData)
     bpy.context.scene.objects.link(obj)
     
     if(originToGeometry == True):
         obj.select = True
         bpy.ops.object.origin_set(type='ORIGIN_GEOMETRY', center='BOUNDS')
+        
     return obj
 
 def copySrcObjProps(copyObj, newCurveData):
@@ -675,7 +1014,7 @@ def copySrcObjProps(copyObj, newCurveData):
         newCurveData.materials.append(material)
 
 
-def getNewCurveData(bpy, splinesData, copyObj, toClose, scale, zVal):
+def getNewCurveData(bpy, splinesData, copyObj, pathElem, scale, zVal):
 
     newCurveData = bpy.data.curves.new("link", 'CURVE')
     if(copyObj != None):
@@ -688,80 +1027,63 @@ def getNewCurveData(bpy, splinesData, copyObj, toClose, scale, zVal):
         newCurveData.dimensions = '3D'
 
 
-    for pointSets in splinesData:
+    for i, pointSets in enumerate(splinesData):
         spline = newCurveData.splines.new('BEZIER')
         spline.bezier_points.add(len(pointSets)-1)
-        for i in range(0, len(spline.bezier_points)):
-            pointSet = pointSets[i]
-            spline.bezier_points[i].co = get3DPt(pointSet.pt, scale, zVal)
-            spline.bezier_points[i].handle_left = get3DPt(pointSet.handleLeft, scale, zVal)
-            spline.bezier_points[i].handle_right = get3DPt(pointSet.handleRight, scale, zVal)
-            spline.bezier_points[i].handle_right_type = 'FREE'
-
-    # ~ if(toClose):
-    newCurveData.splines[0].use_cyclic_u = toClose
+        spline.use_cyclic_u = pathElem.parts[i].partToClose
+        
+        for j in range(0, len(spline.bezier_points)):
+            pointSet = pointSets[j]
+            spline.bezier_points[j].co = get3DPt(pointSet.pt, scale, zVal)
+            spline.bezier_points[j].handle_left = get3DPt(pointSet.handleLeft, scale, zVal)
+            spline.bezier_points[j].handle_right = get3DPt(pointSet.handleRight, scale, zVal)
+            spline.bezier_points[j].handle_right_type = 'FREE'
 
     return newCurveData
     
-def getSplineDataForPath(pathElem, splineIdxs, scale = None, zVal = None):
-    svgpath = pathElem.path
+def getSplineDataForPath(pathElem, scale = None, zVal = None):
     splinesData = []
-    prevSeg = None
-    numSegs = len(svgpath)
-    for i in range(0, numSegs):
-        seg = svgpath[i]
-        
-        pt = seg.start
-        handleRight = seg.control1
-
-        #0 has to be in splineIdxs
-        if(i in splineIdxs):
-            if(i > 0):
-                pointSets.append(BlenderBezierPoint(prevSeg.end, handleLeft=prevSeg.control2, handleRight = prevSeg.end))
-            pointSets = []
-            splinesData.append(pointSets)
-
-            if(i == 0 and pathElem.toClose):
-                handleLeft = svgpath[-1].control2
-            else:
-                handleLeft = pt
-        else:
-            handleLeft = prevSeg.control2
-            
-        #Handy for Debugging
-        # ~ addText(str(i), get3DPt(pt, scale, zVal))                
-            
-        pointSets.append(BlenderBezierPoint(pt, handleLeft=handleLeft, handleRight = handleRight))
-        prevSeg = seg
     
-    # ~ addText(str(len(svgpath)), get3DPt(prevSeg[3], scale, zVal))
-        
-    if(pathElem.toClose == True):
-        pointSets[-1].handleRight = seg.control1
-    else:
-        pointSets.append(BlenderBezierPoint(prevSeg.end, handleLeft=prevSeg.control2, handleRight = prevSeg.end))
+    for i, part in enumerate(pathElem.parts):
+        prevSeg = None
+        pointSets = []
+
+        for j, seg in enumerate(part.getSegs()):
+            
+            pt = seg.start
+            handleRight = seg.control1
+            
+            if(j == 0):
+                if(pathElem.parts[i].partToClose):
+                    handleLeft = part.getSeg(-1).control2
+                else:
+                    handleLeft = pt
+            else:
+                handleLeft = prevSeg.control2
+                
+            pointSets.append(BlenderBezierPoint(pt, handleLeft = handleLeft, 
+                handleRight = handleRight))
+            prevSeg = seg
+    
+        if(pathElem.parts[i].partToClose == True):
+            pointSets[-1].handleRight = seg.control1
+        else:
+            pointSets.append(BlenderBezierPoint(prevSeg.end, 
+                handleLeft = prevSeg.control2, handleRight = prevSeg.end))
+            
+        splinesData.append(pointSets)
         
     return splinesData
 
-#For debugging
-def addText(text, location):
-    fact = .1
-    myFont = bpy.data.curves.new(type="FONT",name="myFont")
-    fontOb = bpy.data.objects.new("fontOb",myFont)
-    fontOb.data.body = text
-    fontOb.location = location
-    bpy.context.scene.objects.link(fontOb)
-    bpy.context.scene.update()
-    fontOb.dimensions = (fontOb.dimensions[0] * fact, fontOb.dimensions[1] * fact, fontOb.dimensions[2] * fact)
 
-###################################################### addon code end ########################################################
+###################### addon code end ####################
 
 #
 # The following section is a Python conversion of the javascript
 # a2c function at: https://github.com/fontello/svgpath
 # (Copyright (C) 2013-2015 by Vitaly Puzrin)
 #
-######################################################### a2c start ##########################################################
+######################## a2c start #######################
 
 TAU = math.pi * 2
 
@@ -950,7 +1272,7 @@ def getMappedList(result, rx, ry, sin_phi, cos_phi, cc):
         mappedList.append(curve)
     return mappedList
 
-######################################################### a2c end ############################################################
+######################### a2c end ########################
 
 
 #
@@ -958,12 +1280,16 @@ def getMappedList(result, rx, ry, sin_phi, cos_phi, cc):
 # from svgpathtools (https://github.com/mathandy/svgpathtools)
 # (Copyright (c) 2015 Andrew Allan Port, Copyright (c) 2013-2014 Lennart Regebro)
 #
+# Changes are mde to maintain which of the disconnected parts are closed (isClosing)
+# and floating point comparison in parse_path is changed to have tolerance
+#
 # Many explanatory comments are excluded
 #
-################################################### svgpathtools start #######################################################
+#################### svgpathtools start ###################
 
 LENGTH_MIN_DEPTH = 5
-LENGTH_ERROR = 1e-12
+
+LENGTH_ERROR = 1e-12 
 
 COMMANDS = set('MmZzLlHhVvCcSsQqTtAa')
 UPPERCASE = set('MZLHVCSQTA')
@@ -1029,9 +1355,10 @@ def parse_path(pathdef, current_pos=0j):
 
         elif command == 'Z':
             # Close path
-            if not (cmplxCmpWithMargin(current_pos, start_pos)):
+            if not (cmplxCmpWithMargin(current_pos, start_pos)): #For Shape key import
             #~ if not (current_pos == start_pos):
                 segments.append(Line(current_pos, start_pos))
+            segments[-1].isClosing = True  #For Shape key import
             segments.closed = True
             current_pos = start_pos
             start_pos = None
@@ -1172,6 +1499,7 @@ class Line(object):
     def __init__(self, start, end):
         self.start = start
         self.end = end
+        self.isClosing = False  #For Shape key import
 
     def __repr__(self):
         return 'Line(start=%s, end=%s)' % (self.start, self.end)
@@ -1207,6 +1535,7 @@ class QuadraticBezier(object):
         self.control = control
 
         self._length_info = {'length': None, 'bpoints': None}
+        self.isClosing = False  #For Shape key import
 
     def __repr__(self):
         return 'QuadraticBezier(start=%s, control=%s, end=%s)' % (
@@ -1244,6 +1573,7 @@ class CubicBezier(object):
 
         self._length_info = {'length': None, 'bpoints': None, 'error': None,
                              'min_depth': None}
+        self.isClosing = False  #For Shape key import
 
     def __repr__(self):
         return 'CubicBezier(start=%s, control1=%s, control2=%s, end=%s)' % (
@@ -1269,8 +1599,7 @@ class CubicBezier(object):
 
     def bpoints(self):
         return self.start, self.control1, self.control2, self.end
-
-
+        
     def length(self, t0=0, t1=1, error=LENGTH_ERROR, min_depth=LENGTH_MIN_DEPTH):
         if t0 == 0 and t1 == 1:
             if self._length_info['bpoints'] == self.bpoints() \
@@ -1315,6 +1644,7 @@ class Arc(object):
         self.rot_matrix = exp(1j*self.phi)
 
         self._parameterize()
+        self.isClosing = False  #For Shape key import
 
     def __repr__(self):
         params = (self.start, self.radius, self.rotation,
@@ -1587,4 +1917,5 @@ class Path(MutableSequence):
 
         return ' '.join(parts)
 
-################################################### svgpathtools end #########################################################
+##################### svgpathtools end ####################
+
