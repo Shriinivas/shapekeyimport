@@ -26,13 +26,14 @@ target path and setting its value to the comma separated IDs of the shapekey pat
 
 # Limitations
 Transform attribute in the SVG is not currently supported<br>
-Exercise caution when using this add-on in production as it's in alpha stage<br>
+Exercise caution when using this add-on in production as it's in alpha stage<br><br>
+Keep watching this space, as there will be updates to the code as and when bugs are discovered and fixed <br>
+(Perhaps, you may also want to contribute to the process :)
 
 # Credits
 The add-on file includes python converted <a href=https://github.com/fontello/svgpath>a2c</a> js function (Copyright (C) 2013-2015 by Vitaly Puzrin)
-and some portion imported from <a href=https://github.com/mathandy/svgpathtools>svgpathtools</a> (Copyright (c) 2015 Andrew Allan Port, Copyright (c) 2013-2014 Lennart Regebro)
+and some portion imported from <a href=https://github.com/mathandy/svgpathtools>svgpathtools</a> (Copyright (c) 2015 Andrew Allan Port, Copyright (c) 2013-2014 Lennart Regebro)<br>
+A few of the bezier curve related algorithms were inspired by the answers on stackoverflow; their links can be found in the code.
 
 # License
 <a href=https://github.com/Shriinivas/shapekeyimport/blob/master/LICENSE>MIT</a>
-
-
