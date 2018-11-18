@@ -25,7 +25,6 @@ target path and setting its value to the comma separated IDs of the shapekey pat
 <a href=https://youtu.be/XMimQfQR_ss> The introductory video</a> and <a href=https://youtu.be/o6oCFZsM87M> the enhancements overview </a>  are a good starting point for exploring the add-on functionality
 
 # Limitations
-Transform attribute in the SVG is not currently supported<br>
 Exercise caution when using this add-on in production as it's in alpha stage<br><br>
 Keep watching this space, as there will be updates to the code as and when bugs are discovered and fixed <br>
 (Perhaps, you may also want to contribute to the process :)
