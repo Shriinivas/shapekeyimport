@@ -16,8 +16,8 @@ from bpy.props import IntProperty, FloatProperty, BoolProperty, StringProperty
 from bpy.props import CollectionProperty, EnumProperty
 from xml.dom import minidom
 from collections import OrderedDict
-from mathutils import Vector
-from math import sqrt, cos, sin, acos, degrees, radians
+from mathutils import Vector, Matrix
+from math import sqrt, cos, sin, acos, degrees, radians, tan
 from cmath import exp, sqrt as csqrt, phase
 from collections import MutableSequence
 
@@ -252,10 +252,11 @@ class Part():
         return sum(seg.length(error = error) for seg in self.segs)
         
 class PathElem:
-    def __init__(self, path, attributes):
+    def __init__(self, path, attributes, transList):
         self.parts = getDisconnParts(path)
         self.pathId = attributes['id'].value
         self.attributes = attributes
+        self.transList = transList
 
     def getPartCnt(self):
         return len(self.parts)
@@ -309,8 +310,11 @@ def getPathElemMap(doc, pathsFromHiddenLayer):
     elemMap = {}
     for pathXMLElem in doc.getElementsByTagName('path'):
         if (isElemSelectable(pathXMLElem, pathsFromHiddenLayer)):
+            transList = []
             idAttr = pathXMLElem.getAttribute('id')
-            pathElem = PathElem(parse_path(pathXMLElem.getAttribute('d')), pathXMLElem.attributes)
+            parsedPath = parse_path(pathXMLElem.getAttribute('d'))
+            getTransformAttribs(pathXMLElem, transList)
+            pathElem = PathElem(parsedPath, pathXMLElem.attributes, transList)
             elemMap[idAttr] = pathElem
     return elemMap
 
@@ -392,8 +396,8 @@ def main(infilePath, shapeKeyAttribName, byGroup, byAttrib, addShapeKeyPaths,
 
 #Avoid errors due to floating point conversions/comparisons
 def cmplxCmpWithMargin(complex1, complex2, margin = DEF_ERR_MARGIN):
-    return floatCmpWithMargin(complex1.real, complex2.real, margin) and floatCmpWithMargin(complex1.imag, 
-                              complex2.imag, margin)
+    return floatCmpWithMargin(complex1.real, complex2.real, margin) and \
+        floatCmpWithMargin(complex1.imag, complex2.imag, margin)
 
 def floatCmpWithMargin(float1, float2, margin = DEF_ERR_MARGIN):
     return abs(float1 - float2) < margin 
@@ -414,6 +418,16 @@ def getParentInHierarchy(elem, parentTag):
         return None
         
     return parent
+
+def getTransformAttribs(elem, transList):
+    if(elem.nodeType == elem.DOCUMENT_NODE):
+        return
+        
+    transAttr = elem.getAttribute('transform')
+    if(transAttr != None):
+        transList.append(transAttr)
+    if(elem.parentNode != None):
+        getTransformAttribs(elem.parentNode, transList)
 
 def isInHiddenLayer(elem):
     parent = elem.parentNode 
@@ -717,7 +731,7 @@ def getDisconnParts(path):
 
 def normalizePathElems(pathElems, alignOrder, partArrangeOrder):
     for pathElem in pathElems:
-        convertToCubicBezier(pathElem)
+        toTransformedCBezier(pathElem)
         alignPath(pathElem, alignOrder, partArrangeOrder)
 
 #Resolution is mapped to parts
@@ -797,6 +811,76 @@ def addMissingSegs(pathElems, byPart, resolution):
                     
                     #isClosed won't be used, but let's update anyway
                     pathElem.parts[j] = Part(newSegs, part.isClosed)
+
+
+def transTranslate(elems):
+    y = 0
+    if(len(elems) > 1):
+        y = elems[1]
+    return Matrix.Translation((elems[0], y, 0))
+
+def transScale(elems):
+    y = 0
+    if(len(elems) > 1):
+        y = elems[1]
+
+    return Matrix.Scale(elems[0], 4, (1, 0, 0)) * \
+        Matrix.Scale(y, 4, (0, 1, 0))
+
+def transRotate(elems):
+    m = transTranslate(elems[1:])
+
+    return m * Matrix.Rotation(radians(elems[0]), 4, Vector((0, 0, 1))) \
+        * m.inverted()
+
+def transSkewX(elems):
+    mat = Matrix()
+    mat[0][1] = tan(radians(elems[0]))
+    return mat
+
+def transSkewY(elems):
+    mat = Matrix()
+    mat[1][0] = tan(radians(elems[0]))
+    return mat
+
+def transMatrix(elems):
+    #standard matrix with diagonal elems = 1
+    mat = Matrix()
+    mat[0][0] = elems[0]
+    mat[0][1] = elems[2]
+    mat[0][3] = elems[4]
+    mat[1][0] = elems[1]
+    mat[1][1] = elems[3]
+    mat[1][3] = elems[5]
+    return mat
+   
+transforms = {'translate': transTranslate,
+              'scale': transScale,
+              'rotate': transRotate,
+              'skewX': transSkewX,
+              'skewY': transSkewY,
+              'matrix': transMatrix}
+
+def getTransforMatrix(transList):
+    mat = Matrix()    
+    regEx = re.compile('([^\(]+)\((.+)\)')
+    for transform in transList:        
+        res = regEx.search(transform)
+        if(res != None):
+            fnStr = res.group(1)
+            elems = [float(e) for e in res.group(2).split(',')]
+            fn = transforms.get(fnStr)
+            if(fn != None):
+                mat = fn(elems) * mat
+    return mat
+    
+def getTransformedSeg(bezierSeg, mat):
+    pts = []
+    for pt in bezierSeg:
+        pt3d = Vector((pt.real, pt.imag, 0))
+        pt3d = mat * pt3d
+        pts.append(complex(pt3d[0], pt3d[1]))
+    return CubicBezier(*pts)
 
 #format (key, value): [(order_str, seg_cmp_fn), ...] 
 #(Listed clockwise in the dropdown)
@@ -894,13 +978,15 @@ def alignPath(pathElem, alignOrderSegs, partArrangeOrder):
                 parts[i].getSegsCopy(None, startIdx), parts[i].isClosed)
         else:
             pathElem.parts[i] = parts[i]
-            
-def convertToCubicBezier(pathElem):
+
+#Convert all segments to cubic bezier and apply transforms
+def toTransformedCBezier(pathElem):
     for i in range(0, len(pathElem.parts)):
         part = pathElem.parts[i]
         newPartSegs = []
-        
+            
         for seg in part.getSegs():
+            
             if(type(seg).__name__ is 'Line'):
                 newPartSegs.append(CubicBezier(seg[0], seg[0], seg[1], seg[1]))
                 
@@ -933,6 +1019,10 @@ def convertToCubicBezier(pathElem):
                 print('Strange! Never thought of this.', type(seg).__name__)
                 # ~ assert False    #nope.. let's continue for now
                 continue
+                
+        if(len(pathElem.transList) > 0):
+            mat = getTransforMatrix(pathElem.transList)
+            newPartSegs = [getTransformedSeg(seg, mat) for seg in newPartSegs]
             
         pathElem.parts[i] = Part(newPartSegs, part.isClosed)
                 
