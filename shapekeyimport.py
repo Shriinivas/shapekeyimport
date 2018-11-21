@@ -29,6 +29,7 @@ bl_info = {
 }
 
 noneStr = "-None-"
+CURVE_NAME_PREFIX = 'Curve'
 
 def getCurveNames(scene, context):
     return [(noneStr, noneStr, '-1')] + [(obj.name, obj.name, str(i)) for i, obj in 
@@ -252,11 +253,12 @@ class Part():
         return sum(seg.length(error = error) for seg in self.segs)
         
 class PathElem:
-    def __init__(self, path, attributes, transList):
+    def __init__(self, path, attributes, transList, seqId):
         self.parts = getDisconnParts(path)
         self.pathId = attributes['id'].value
         self.attributes = attributes
         self.transList = transList
+        self.seqId = seqId
 
     def getPartCnt(self):
         return len(self.parts)
@@ -308,14 +310,16 @@ class BlenderBezierPoint:
 
 def getPathElemMap(doc, pathsFromHiddenLayer):
     elemMap = {}
+    seqId = 0
     for pathXMLElem in doc.getElementsByTagName('path'):
         if (isElemSelectable(pathXMLElem, pathsFromHiddenLayer)):
             transList = []
             idAttr = pathXMLElem.getAttribute('id')
             parsedPath = parse_path(pathXMLElem.getAttribute('d'))
             getTransformAttribs(pathXMLElem, transList)
-            pathElem = PathElem(parsedPath, pathXMLElem.attributes, transList)
+            pathElem = PathElem(parsedPath, pathXMLElem.attributes, transList, seqId)
             elemMap[idAttr] = pathElem
+            seqId += 1
     return elemMap
 
 def main(infilePath, shapeKeyAttribName, byGroup, byAttrib, addShapeKeyPaths, 
@@ -861,7 +865,7 @@ transforms = {'translate': transTranslate,
               'skewY': transSkewY,
               'matrix': transMatrix}
 
-def getTransforMatrix(transList):
+def getTransformMatrix(transList):
     mat = Matrix()    
     regEx = re.compile('([^\(]+)\((.+)\)')
     for transform in transList:        
@@ -1021,7 +1025,7 @@ def toTransformedCBezier(pathElem):
                 continue
                 
         if(len(pathElem.transList) > 0):
-            mat = getTransforMatrix(pathElem.transList)
+            mat = getTransformMatrix(pathElem.transList)
             newPartSegs = [getTransformedSeg(seg, mat) for seg in newPartSegs]
             
         pathElem.parts[i] = Part(newPartSegs, part.isClosed)
@@ -1057,8 +1061,9 @@ def addSvg2Blender(objMap, pathElem, scale, zVal, copyObj, originToGeometry):
     
     pathId = pathElem.pathId
     splineData = getSplineDataForPath(pathElem, scale, zVal)
-    
-    obj = createCurveFromData(pathId, splineData, copyObj, pathElem, 
+
+    curveName = CURVE_NAME_PREFIX + str(pathElem.seqId).zfill(5)
+    obj = createCurveFromData(curveName, splineData, copyObj, pathElem, 
             originToGeometry, scale, zVal)
             
     objMap[pathId] = obj
@@ -1106,7 +1111,7 @@ def copySrcObjProps(copyObj, newCurveData):
 
 def getNewCurveData(bpy, splinesData, copyObj, pathElem, scale, zVal):
 
-    newCurveData = bpy.data.curves.new("link", 'CURVE')
+    newCurveData = bpy.data.curves.new(pathElem.pathId, 'CURVE')
     if(copyObj != None):
         copySrcObjProps(copyObj, newCurveData)
         #Copying won't work, params set from too many places
