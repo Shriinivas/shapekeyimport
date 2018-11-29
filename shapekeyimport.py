@@ -832,7 +832,9 @@ def transScale(elems):
         Matrix.Scale(y, 4, (0, 1, 0))
 
 def transRotate(elems):
-    m = transTranslate(elems[1:])
+    m = Matrix()
+    if(len(elems) > 1):
+        m = transTranslate(elems[1:])
 
     return m * Matrix.Rotation(radians(elems[0]), 4, Vector((0, 0, 1))) \
         * m.inverted()
