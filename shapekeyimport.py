@@ -313,9 +313,12 @@ def getPathElemMap(doc, pathsFromHiddenLayer):
     seqId = 0
     for pathXMLElem in doc.getElementsByTagName('path'):
         if (isElemSelectable(pathXMLElem, pathsFromHiddenLayer)):
+            dVal = pathXMLElem.getAttribute('d')
+            if(dVal == None or dVal.strip() == ""):
+                continue
             transList = []
             idAttr = pathXMLElem.getAttribute('id')
-            parsedPath = parse_path(pathXMLElem.getAttribute('d'))
+            parsedPath = parse_path(dVal)
             getTransformAttribs(pathXMLElem, transList)
             pathElem = PathElem(parsedPath, pathXMLElem.attributes, transList, seqId)
             elemMap[idAttr] = pathElem
