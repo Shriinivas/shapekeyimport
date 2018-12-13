@@ -14,7 +14,7 @@ Check the 'Import Paths and Shape Keys' option in the add-ons dialog <br>
 You can invoke the add-on in 2.79 by pressing spacebar or in 2.8 beta by pressing F3 in the 3d view and selecting the <br>
 'Import Paths & Shape Keys' option<br> The add-on is also accesible from Import menu under File<br>
 
-'demo.blend' and 'demo ver 2.blend' illustrate the basic functionality and the new enhancements of version 2. You can import one of the SVGs (via import shape keys option) in a new blender file to verify the functionality. Even though the import function currently works only with 2.79b, the imported shapes can be accessed from 2.8 alpha as well. So the blend files here can be opened with Blender 2.8
+'demo.blend' and 'demo ver 2.blend' illustrate the basic functionality and the new enhancements of version 2. You can import one of the SVGs (via import shape keys option) in a new blender file to verify the functionality. 
 
 
 # Quick start
