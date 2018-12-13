@@ -1,11 +1,11 @@
 # Blender add-on to import paths as shape keys<br>
-This add-on lets you import paths from an SVG file as paths as well as shape keys <br>
+This add-on lets you import paths from an SVG file as paths as well as shape keys <br><br>
 Supported Blender versions<br>
 2.8 beta (Script File - shapekeyimport_2_8.py) <br>
 2.79b (Script File - shapekeyimport.py) <br>
 
 # Installation
-For Blender 2.8 beta, download shapekeyimport_2_8.py; for 2.79b download svgimport.py<br>
+For Blender 2.8 beta, download shapekeyimport_2_8.py; for 2.79b download svgimport.py<br><br>
 In Blender select File->User Preferences <br>
 Click install Add-ons tab and then Install Add-on from File<br>
 Select the downloaded file <br>
@@ -31,7 +31,7 @@ In case you are using SVG Editor other than Inkscape, you may have to uncheck 'I
 <a href=https://youtu.be/XMimQfQR_ss> The introductory video</a> and <a href=https://youtu.be/o6oCFZsM87M> the enhancements overview </a>  are a good starting point for exploring the add-on functionality
 
 # Limitations
-Exercise caution when using this add-on in production as it's in beta stage<br><br>
+Exercise caution when using this add-on in production as it's in beta stage<br>
 
 As of now the Add-on is tested with Inkscape only. If you face issues with other SVG editors, try exporting the file as plain SVG <br> Please report such and other issues along with the sample files here and I will look into them as soon as I can <br>
 
