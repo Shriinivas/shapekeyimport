@@ -194,6 +194,11 @@ if __name__ == "__main__":
 DEF_ERR_MARGIN = 0.0001
 hiddenLayerAttr = 'display:none'
 
+def isValidPath(pathElem):
+    dVal = pathElem.getAttribute('d')
+    return (dVal != None) and (dVal.strip() != "") and \
+        (dVal[0] in set('MLHVCSQTAmlhvcsqa'))
+    
 class OrderedSet(OrderedDict):        
     def add(self, item):
          super(OrderedSet, self).__setitem__(item, '')
@@ -313,10 +318,9 @@ def getPathElemMap(doc, pathsFromHiddenLayer):
     elemMap = {}
     seqId = 0
     for pathXMLElem in doc.getElementsByTagName('path'):
-        if (isElemSelectable(pathXMLElem, pathsFromHiddenLayer)):
+        if (isElemSelectable(pathXMLElem, pathsFromHiddenLayer) and
+            isValidPath(pathXMLElem)):
             dVal = pathXMLElem.getAttribute('d')
-            if(dVal == None or dVal.strip() == ""):
-                continue
             transList = []
             idAttr = pathXMLElem.getAttribute('id')
             parsedPath = parse_path(dVal)
@@ -499,7 +503,7 @@ def addDependentPathsToList(shapeKeyMap, pathIdSet, targetId):
 def getAllPathElemsInGroup(parentElem, pathElems):
     for childNode in parentElem.childNodes:    
         if childNode.nodeType == childNode.ELEMENT_NODE:    
-            if(childNode.tagName == 'path'):
+            if(childNode.tagName == 'path' and isValidPath(childNode)):
                 pathElems.append(childNode)
             elif(childNode.tagName == 'g'):
                 getAllPathElemsInGroup(childNode, pathElems)
@@ -873,15 +877,17 @@ transforms = {'translate': transTranslate,
 
 def getTransformMatrix(transList):
     mat = Matrix()    
-    regEx = re.compile('([^\(]+)\((.+)\)')
+    regEx = re.compile('([^\(]+)\(([^\)]+)\)')
     for transform in transList:        
+        results = regEx.findall(transform)
+        if(results != None and len(results) > 0):
+            for res in results:
+                fnStr = res[0]
+                elems = [float(e) for e in res[1].split(',')]
+                fn = transforms.get(fnStr)
+                if(fn != None):
+                    mat = fn(elems) @ mat
         res = regEx.search(transform)
-        if(res != None):
-            fnStr = res.group(1)
-            elems = [float(e) for e in res.group(2).split(',')]
-            fn = transforms.get(fnStr)
-            if(fn != None):
-                mat = fn(elems) @ mat
     return mat
     
 def getTransformedSeg(bezierSeg, mat):
