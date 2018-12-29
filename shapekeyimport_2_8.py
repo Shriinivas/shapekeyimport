@@ -757,27 +757,64 @@ def getSegCntForResolution(part, resolution):
     else:
         return segCntForRes
 
+#Distribute equally; this is likely a rare condition. So why complicate?
+def distributeCnt(maxSegCntsByPart, startIdx, extraCnt):    
+    added = 0
+    elemCnt = len(maxSegCntsByPart) - startIdx
+    cntPerElem = math.floor(extraCnt / elemCnt)
+    remainder = extraCnt % elemCnt
+    for i in range(startIdx, len(maxSegCntsByPart)):
+        maxSegCntsByPart[i] += cntPerElem
+        if(i < remainder + startIdx):
+            maxSegCntsByPart[i] += 1
+
 #Make all the paths to have the maximum number of segments in the set
 def addMissingSegs(pathElems, byPart, resolution):    
     maxSegCntsByPart = []
     samePartCnt = True
     maxSegCnt = 0
     
-    for i, pathElem in enumerate(pathElems):
+    resSegCnt = []
+    sortedElems = sorted(pathElems, key = lambda p: -len(p.parts))
+    for i, pathElem in enumerate(sortedElems):
         if(byPart == False):
             segCnt = getSegCntForResolution(pathElem.getPartView(), resolution)
             if(segCnt > maxSegCnt):
                 maxSegCnt = segCnt
 
         else:
+            resSegCnt.append([])                        
             for j, part in enumerate(pathElem.parts):
                 partSegCnt = getSegCntForResolution(part, resolution)
+                resSegCnt[i].append(partSegCnt)
+                #First path                 
                 if(j == len(maxSegCntsByPart)):
                     maxSegCntsByPart.append(partSegCnt)
+                    
+                #last part of this path, but other paths in set have more parts
+                elif((j == len(pathElem.parts) - 1) and 
+                    len(maxSegCntsByPart) > len(pathElem.parts)):
+                        
+                    remainingSegs = sum(maxSegCntsByPart[j:])
+                    if(partSegCnt <= remainingSegs):
+                        resSegCnt[i][j] = remainingSegs
+                    else:
+                        #This part has more segs than the sum of the remaining part segs
+                        #So distribute the extra count
+                        distributeCnt(maxSegCntsByPart, j, (partSegCnt - remainingSegs))
+                        
+                        #Also, adjust the seg count of the last part of the previous 
+                        #segments that had fewer than max number of parts
+                        for k in range(0, i):
+                            if(len(sortedElems[k].parts) < len(maxSegCntsByPart)):
+                                totalSegs = sum(maxSegCntsByPart)
+                                existingSegs = sum(maxSegCntsByPart[:len(sortedElems[k].parts)-1])
+                                resSegCnt[k][-1] = totalSegs - existingSegs
+                    
                 elif(partSegCnt > maxSegCntsByPart[j]):
                     maxSegCntsByPart[j] = partSegCnt
 
-    for pathElem in pathElems:
+    for i, pathElem in enumerate(sortedElems):
 
         if(byPart == False):
             partView = pathElem.getPartView()
@@ -808,8 +845,7 @@ def addMissingSegs(pathElems, byPart, resolution):
                 #TODO: Adding everything in the last part?
                 if(j == (len(pathElem.parts)-1) and 
                     len(maxSegCntsByPart) > len(pathElem.parts)):
-                    
-                    diff = sum(maxSegCntsByPart[j:]) - partSegCnt
+                    diff = resSegCnt[i][j] - partSegCnt
                 else:    
                     diff = maxSegCntsByPart[j] - partSegCnt
                     
