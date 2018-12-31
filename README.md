@@ -1,4 +1,4 @@
-![Demo](https://github.com/Shriinivas/shapekeyimport/blob/master/git.gif)
+![Demo](https://github.com/Shriinivas/shapekeyimport/blob/master/intro.gif)
 # Blender add-on to import paths as shape keys<br>
 This add-on lets you import paths from an SVG file as paths as well as shape keys <br><br>
 Supported Blender versions<br>
