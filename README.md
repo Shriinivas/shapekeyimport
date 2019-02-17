@@ -20,7 +20,7 @@ You can invoke the add-on in 2.79 by pressing spacebar or in 2.8 beta by pressin
 
 # Quick start
 (SVG Editor: Inkscape)<br>
-Group the paths in the SVG editor, make sure the target is the first node in the XML group node &lt;svg:g&gt;<br>
+Group the paths in the SVG editor, make sure the group is in some Layer and the target is the first node in the XML group node &lt;svg:g&gt;<br>
 Invoke the add-on in Blender, select the svg file and click 'Import Paths & Shapekeys' button<br>
 The target now has the shapekeys that correspond to the paths in the svg group  <br>
 
