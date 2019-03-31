@@ -3,6 +3,8 @@
 # This Blender add-on imports paths and shapeKeys from an  SVG file
 # Supported Blender Version: 2.8 Beta
 #
+# Copyright (C) 2018  Shrinivas Kulkarni
+#
 # License: MIT (https://github.com/Shriinivas/shapeKeyimport/blob/master/LICENSE)
 #
 
@@ -25,6 +27,8 @@ from collections import MutableSequence
 
 bl_info = {
     "name": "Import Paths and Shape Keys from SVG",
+    "author": "Shrinivas Kulkarni",
+    "location": "File > Import > Import Paths & Shape Keys (.svg)",
     "category": "Import-Export",
     "blender": (2, 80, 0),
 }
