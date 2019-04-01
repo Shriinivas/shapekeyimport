@@ -1128,7 +1128,7 @@ def createCurveFromData(curveName, splineData, copyObj, pathElem,
     bpy.context.scene.collection.objects.link(obj)    
     
     if(originToGeometry == True):
-        obj.select = True
+        obj.select_set(True)
         bpy.ops.object.origin_set(type='ORIGIN_GEOMETRY', center='BOUNDS')
         
     return obj
