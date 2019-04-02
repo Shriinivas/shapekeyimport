@@ -102,7 +102,7 @@ class ObjectImportShapeKeys(bpy.types.Operator):
         
     resolution : IntProperty(name="Resolution", \
         description='Higher value gives smoother transition but more complex geometry', \
-            default = 50, min=0)
+            default = 0, min=0)
         
     objList : EnumProperty(name="Copy Properties From", items = getCurveNames, \
         description='Curve whose material, depth etc. should be copied on to imported paths')
