@@ -443,14 +443,15 @@ def getTransformAttribs(elem, transList):
 def isInHiddenLayer(elem):
     parent = elem.parentNode 
     
-    while(parent != None and (parent.tagName != 'g' or 
-        (parent.parentNode != None and  parent.parentNode.tagName != 'svg'))):
+    while(parent != None and parent.nodeType == parent.ELEMENT_NODE and \
+        (parent.tagName != 'g' or (parent.parentNode != None and  \
+            parent.parentNode.tagName != 'svg'))):
         parent = parent.parentNode 
         
-    if(parent != None):
+    if(parent != None and parent.nodeType == parent.ELEMENT_NODE):
         return parent.getAttribute('style').startswith(hiddenLayerAttr)
         
-    return True
+    return False
 
 def getDependentPathIdsSets(shapeKeyMap):
     pathIdSets = []
