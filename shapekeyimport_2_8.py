@@ -13,7 +13,7 @@
 # Scaling not done based on the unit of the SVG document, but based simply on value
 # If precise scaling is needed, appropriate unit (mm) needs to be set in the source SVG
 
-import bpy, copy, math, re, time
+import bpy, copy, math, re, time, os
 from bpy.props import IntProperty, FloatProperty, BoolProperty, StringProperty
 from bpy.props import CollectionProperty, EnumProperty
 from xml.dom import minidom
@@ -395,9 +395,14 @@ def main(infilePath, shapeKeyAttribName, byGroup, byAttrib, addShapeKeyPaths,
     copyObj = bpy.data.objects.get(copyObjName)#Can be None
     
     objMap = {}
-        
+    
+    if(len(objPathIds) > 0):
+        groupName = os.path.basename(infilePath)
+        group = bpy.data.collections.new(groupName)
+        bpy.context.scene.collection.children.link(group)
+    
     for objPathId in objPathIds:
-        addSvg2Blender(objMap, pathElemsMap[objPathId], scale, zVal, copyObj, originToGeometry)
+        addSvg2Blender(group, objMap, pathElemsMap[objPathId], scale, zVal, copyObj, originToGeometry)
     
     for pathElemId in targetShapeKeyMap.keys():
         pathObj = objMap[pathElemId]
@@ -1110,23 +1115,24 @@ def get3DPt(point, scale, zVal):
     return [point.real * scale[0], point.imag * scale[1], zVal * scale[2]]
 
 #All segments must have already been converted to cubic bezier
-def addSvg2Blender(objMap, pathElem, scale, zVal, copyObj, originToGeometry):
+def addSvg2Blender(group, objMap, pathElem, scale, zVal, copyObj, originToGeometry):
     
     pathId = pathElem.pathId
     splineData = getSplineDataForPath(pathElem, scale, zVal)
 
     curveName = CURVE_NAME_PREFIX + str(pathElem.seqId).zfill(5)
-    obj = createCurveFromData(curveName, splineData, copyObj, pathElem, 
+    obj = createCurveFromData(group, curveName, splineData, copyObj, pathElem, 
             originToGeometry, scale, zVal)
             
     objMap[pathId] = obj
 
-def createCurveFromData(curveName, splineData, copyObj, pathElem, 
+def createCurveFromData(group, curveName, splineData, copyObj, pathElem, 
         originToGeometry, scale, zVal):
     
     curveData = getNewCurveData(bpy, splineData, copyObj, pathElem, scale, zVal)
     obj = bpy.data.objects.new(curveName, curveData)
-    bpy.context.scene.collection.objects.link(obj)    
+    # ~ bpy.context.scene.collection.objects.link(obj)    
+    group.objects.link(obj)    
     
     if(originToGeometry == True):
         obj.select_set(True)
