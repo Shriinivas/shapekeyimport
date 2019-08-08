@@ -3,7 +3,7 @@
 # This Blender add-on imports paths and shapeKeys from an  SVG file
 # Supported Blender Version: 2.79b
 #
-# License: MIT (https://github.com/Shriinivas/shapeKeyimport/blob/master/LICENSE)
+# License: GPL (https://github.com/Shriinivas/shapeKeyimport/blob/master/LICENSE)
 #
 
 # Not yet pep8 compliant 
