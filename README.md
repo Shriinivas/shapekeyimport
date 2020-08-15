@@ -32,6 +32,9 @@ In case you are using SVG Editor other than Inkscape, you may have to uncheck 'I
   
 <a href=https://youtu.be/XMimQfQR_ss> The introductory video</a> and <a href=https://youtu.be/o6oCFZsM87M> the enhancements overview </a>  are a good starting point for exploring the add-on functionality
 
+# Examples & Demos
+You can find [here](https://github.com/Shriinivas/etc/upload/master/shapekeyimport/samples) the demo files used on this page as well as some samples demonstrating the add-on functionality 
+
 # Limitations
 Exercise caution when using this add-on in production as it's in beta stage<br>
 
