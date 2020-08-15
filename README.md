@@ -1,5 +1,4 @@
 ![Demo](https://github.com/Shriinivas/etc/blob/master/shapekeyimport/illustrations/intro.gif)
-![Demo](https://github.com/Shriinivas/etc/blob/master/shapekeyimport/illustrations/git.gif)
 # Blender add-on to import paths as shape keys<br>
 This add-on lets you import paths from an SVG file as paths as well as shape keys <br><br>
 Supported Blender versions<br>
@@ -20,6 +19,7 @@ You can invoke the add-on in 2.79 by pressing spacebar or in 2.8 by pressing F3 
 
 
 # Quick start
+![Demo](https://github.com/Shriinivas/etc/blob/master/shapekeyimport/illustrations/git.gif)
 (SVG Editor: Inkscape)<br>
 Group the paths in the SVG editor, make sure the group is in some Layer and the target is the first node in the XML group node &lt;svg:g&gt;<br>
 Invoke the add-on in Blender, select the svg file and click 'Import Paths & Shapekeys' button<br>
