@@ -21,7 +21,7 @@ from collections import OrderedDict
 from mathutils import Vector, Matrix
 from math import sqrt, cos, sin, acos, degrees, radians, tan
 from cmath import exp, sqrt as csqrt, phase
-from collections import MutableSequence
+from collections.abc import MutableSequence
 
 #################### UI and Registration Stuff ####################
 
